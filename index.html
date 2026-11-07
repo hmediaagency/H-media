@@ -33,14 +33,15 @@ window.addEventListener('unhandledrejection',function(e){var d=document.getEleme
 // ===== الصقي هنا إعدادات Firebase بتاعتك =====
 const FB={apiKey:"AIzaSyChSAylzDENjN5DCBevcizISonI6ng-NhA",authDomain:"hmedia-attendance.firebaseapp.com",projectId:"hmedia-attendance",storageBucket:"hmedia-attendance.firebasestorage.app",messagingSenderId:"656001139972",appId:"1:656001139972:web:543c24f6fa06de8b267c51"};
 // ==============================================
-let db=null,me=null,users={},att={},isOwner=false,tab='today',msg='',editing=null,filt={d:'',u:''};
+let db=null,me=null,users={},att={},isOwner=false,tab='today',msg='',editing=null,filt={d:'',u:''},rcShow=null,forgot=false;
 const $=s=>document.querySelector(s),app=$('#app');
 const PERMS={users:'إدارة الموظفين',reports:'عرض تقارير الجميع',admins:'إضافة أدمن وتعديل الصلاحيات'};
 const pad=n=>String(n).padStart(2,'0');
 const WS=9*60,WE=17*60,mn=t=>{const d=new Date(t);return d.getHours()*60+d.getMinutes()};
 const fm=m=>m>=60?Math.floor(m/60)+'س '+(m%60)+'د':m+'د';
-const hrs=a=>a.in&&a.out?fm(Math.round((a.out-a.in)/60000)):'—';
-const nt=a=>{let n=[];if(a.in&&mn(a.in)>WS)n.push('<span style="color:var(--rd)">تأخير '+fm(mn(a.in)-WS)+'</span>');if(a.out&&mn(a.out)<WE)n.push('<span style="color:var(--rd)">انصراف مبكر '+fm(WE-mn(a.out))+'</span>');if(a.in&&a.out&&!n.length)n.push('<span class="ok">التزام كامل</span>');return n.join(' · ')||'—'};
+const hrs=a=>a.in&&a.out?fm(Math.max(0,Math.round((a.out-a.in-bm(a))/60000))):'—';
+const bm=a=>(a.brk||[]).reduce((t,b)=>t+((b.e||Date.now())-b.s),0);
+const nt=a=>{let n=[];if(a.in&&mn(a.in)>WS)n.push('<span style="color:var(--rd)">تأخير '+fm(mn(a.in)-WS)+'</span>');if(a.out&&mn(a.out)<WE)n.push('<span style="color:var(--rd)">انصراف مبكر '+fm(WE-mn(a.out))+'</span>');if(a.in&&a.out&&!n.length)n.push('<span class="ok">التزام كامل</span>');let b=bm(a)?'استراحة '+fm(Math.round(bm(a)/60000)):'';return n.concat(b?[b]:[]).join(' · ')||'—'};
 const dk=(d=new Date())=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
 const tm=ts=>ts?new Date(ts).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}):'—';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -59,10 +60,12 @@ async function init(){
  setInterval(()=>{const c=$('#clk');if(c)c.textContent=new Date().toLocaleTimeString('ar-EG')},1000);
 }
 function hdr(){return`<div class="top"><div class="brand"><div class="logo">H</div>H Media</div><div>${me?`<span class="mut">${esc(users[me].name)}</span> <button class="s sm" onclick="logout()">خروج</button>`:''}</div></div>`}
-function render(){
+function render(){const sv={};['n','u','c'].forEach(i=>{const e=document.getElementById(i);if(e)sv[i]=e.value});render0();if(msg)for(const i in sv){const e=document.getElementById(i);if(e)e.value=sv[i]}}
+function render0(){
  if(editing&&document.activeElement&&['INPUT','SELECT'].includes(document.activeElement.tagName)&&0)return;
  if(!Object.keys(users).length){app.innerHTML=hdr()+setup();return}
  if(!me){app.innerHTML=hdr()+loginV();return}
+ if(rcShow){app.innerHTML=hdr()+rcCard();return}
  let h=hdr(),tabs=[['today','حضوري']];
  if(can('reports'))tabs.push(['rep','التقارير']);
  if(can('users')||can('admins'))tabs.push(['usr','الموظفين']);
@@ -74,23 +77,33 @@ function render(){
 }
 function setup(){return isOwner?`<div class="card"><h2>إعداد النظام (أول مرة)</h2><p class="mut">أنشئي حساب الأدمن الرئيسي.</p>
 <input id="n" placeholder="الاسم"><input id="u" placeholder="اسم المستخدم (إنجليزي)" autocapitalize="off"><input id="p" type="password" placeholder="كلمة المرور (6 أحرف أو أكثر)">
-<div class="err">${msg}</div><button onclick="doSetup()">إنشاء الأدمن</button></div>`:`<div class="card">النظام لسه مش متجهز. صاحب الصفحة لازم يفتحها أول مرة ويعمل حساب الأدمن.</div>`}
+<label class="c"><input type="checkbox" onchange="pw(this)"> إظهار كلمة المرور</label><div class="err">${msg}</div><button onclick="doSetup()">إنشاء الأدمن</button></div>`:`<div class="card">النظام لسه مش متجهز. صاحب الصفحة لازم يفتحها أول مرة ويعمل حساب الأدمن.</div>`}
 async function doSetup(){const n=$('#n').value.trim(),u=$('#u').value.trim().toLowerCase(),p=$('#p').value;
  if(!n||!/^[a-z0-9_.]+$/.test(u)||p.length<6){msg='املئي البيانات (اسم مستخدم بحروف إنجليزية، وكلمة مرور 6+)';render();return}
- const s=salt();const hh=await hash(p,s);sess(u);me=u;tab='today';msg='';await db.collection('users').doc(u).set({name:n,salt:s,hash:hh,role:'admin',root:true,active:true,perms:{users:true,reports:true,admins:true}})}
-function loginV(){return`<div class="card"><h2>تسجيل الدخول</h2><input id="u" placeholder="اسم المستخدم" autocapitalize="off"><input id="p" type="password" placeholder="كلمة المرور" onkeydown="if(event.key==='Enter')login()"><div class="err">${msg}</div><button onclick="login()" style="width:100%">دخول</button></div>`}
+ const s=salt();const hh=await hash(p,s),rc=[...crypto.getRandomValues(new Uint8Array(12))].map(x=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[x%32]).join(''),rs=salt(),rh=await hash(rc,rs);
+ rcShow=rc.match(/.{4}/g).join('-');sess(u);me=u;tab='today';msg='';await db.collection('users').doc(u).set({name:n,salt:s,hash:hh,rsalt:rs,rhash:rh,role:'admin',root:true,active:true,perms:{users:true,reports:true,admins:true}})}
+function pw(c){$('#p').type=c.checked?'text':'password'}
+function rcCard(){return`<div class="card"><h2>كود استرجاع كلمة المرور</h2><p>احتفظي بالكود ده في مكان آمن (صوّريه أو اكتبيه). هتحتاجيه لو نسيتي كلمة مرور الأدمن، ومش هيظهر تاني.</p><div id="rc" style="direction:ltr;font:700 22px monospace;text-align:center;padding:14px;background:var(--bg);border-radius:10px;user-select:all">${rcShow}</div><button style="width:100%;margin-top:12px" onclick="rcShow=null;render()">حفظت الكود، متابعة</button></div>`}
+function forgotV(){return`<div class="card"><h2>نسيت كلمة المرور</h2><p class="mut">للأدمن الرئيسي: اكتبي اسم المستخدم وكود الاسترجاع وكلمة مرور جديدة. الموظف يطلب من الأدمن يغيّر له كلمة المرور من تبويب الموظفين.</p><input id="u" placeholder="اسم المستخدم" autocapitalize="off"><input id="c" placeholder="كود الاسترجاع" autocapitalize="characters" style="direction:ltr"><input id="p" type="password" placeholder="كلمة المرور الجديدة (6+)"><label class="c"><input type="checkbox" onchange="pw(this)"> إظهار كلمة المرور</label><div class="err">${msg}</div><div class="row"><button onclick="doForgot()">تغيير كلمة المرور</button><button class="s" onclick="forgot=false;msg='';render()">رجوع</button></div></div>`}
+async function doForgot(){const u=$('#u').value.trim().toLowerCase(),c=$('#c').value.replace(/[\s-]/g,'').toUpperCase(),p=$('#p').value,x=users[u];
+ if(!x||!x.rhash||p.length<6||await hash(c,x.rsalt)!==x.rhash){msg='البيانات غير صحيحة، أو الحساب ده مالوش كود استرجاع (اطلبي من الأدمن)';render();return}
+ const sl=salt();await db.collection('users').doc(u).update({salt:sl,hash:await hash(p,sl)});forgot=false;msg='';sess(u);me=u;tab='today';render()}
+function loginV(){if(forgot)return forgotV();return`<div class="card"><h2>تسجيل الدخول</h2><input id="u" placeholder="اسم المستخدم" autocapitalize="off"><input id="p" type="password" placeholder="كلمة المرور" onkeydown="if(event.key==='Enter')login()"><label class="c"><input type="checkbox" onchange="pw(this)"> إظهار كلمة المرور</label><div class="err">${msg}</div><button onclick="login()" style="width:100%">دخول</button><p style="text-align:center;margin:12px 0 0"><a href="#" style="color:var(--gd)" onclick="forgot=true;msg='';render();return false">نسيت كلمة المرور؟</a></p></div>`}
 async function login(){const u=$('#u').value.trim().toLowerCase(),p=$('#p').value,x=users[u];
  if(!x||x.active===false||await hash(p,x.salt)!==x.hash){msg='اسم المستخدم أو كلمة المرور غلط';render();return}
  msg='';sess(u);me=u;tab='today';render()}
 function logout(){sess(null);me=null;render()}
-function today(){const k=me+'_'+dk(),r=att[k]||{};
+function today(){const k=me+'_'+dk(),r=att[k]||{},br=r.brk||[],onB=br.length&&!br[br.length-1].e;
  const mine=Object.values(att).filter(a=>a.u===me).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,14);
  return`<div class="card"><div class="mut" style="text-align:center">${new Date().toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'})}</div><div class="clock" id="clk">${new Date().toLocaleTimeString('ar-EG')}</div>
 <div class="row"><button onclick="punch('in')" ${r.in?'disabled':''}>تسجيل حضور</button><button class="d" onclick="punch('out')" ${!r.in||r.out?'disabled':''}>تسجيل انصراف</button></div>
-<p class="mut" style="text-align:center">حضور: ${tm(r.in)} — انصراف: ${tm(r.out)}<br>مواعيد العمل: 9:00 ص – 5:00 م${r.in?'<br>'+nt(r):''}</p></div>
+<div class="row" style="margin-top:8px"><button class="s" onclick="punch('bs')" ${!r.in||r.out||onB?'disabled':''}>بدء استراحة</button><button class="s" onclick="punch('be')" ${onB?'':'disabled'}>إنهاء الاستراحة</button></div>
+<p class="mut" style="text-align:center">حضور: ${tm(r.in)} — انصراف: ${tm(r.out)}<br>مواعيد العمل: 9:00 ص – 5:00 م${r.in?'<br>'+nt(r):''}${onB?'<br><b>⏸ في استراحة</b>':''}</p></div>
 <div class="card"><h2>آخر أيامي</h2><div class="sc"><table><tr><th>التاريخ</th><th>حضور</th><th>انصراف</th><th>الساعات</th><th>ملاحظات</th></tr>${mine.map(a=>`<tr><td>${a.date}</td><td>${tm(a.in)}</td><td>${tm(a.out)}</td><td>${hrs(a)}</td><td>${nt(a)}</td></tr>`).join('')||'<tr><td colspan=5 class="mut">لا يوجد</td></tr>'}</table></div></div>`}
-async function punch(t){const d=dk(),k=me+'_'+d,r=att[k]||{u:me,name:users[me].name,date:d};
- if(t==='in'&&r.in||t==='out'&&(!r.in||r.out))return;r[t]=Date.now();await db.collection('att').doc(k).set(r)}
+async function punch(t){const d=dk(),k=me+'_'+d,r=att[k]||{u:me,name:users[me].name,date:d},now=Date.now();r.brk=r.brk||[];const l=r.brk[r.brk.length-1],ob=l&&!l.e;
+ if(t==='in'){if(r.in)return;r.in=now}else if(t==='out'){if(!r.in||r.out)return;if(ob)l.e=now;r.out=now}
+ else if(t==='bs'){if(!r.in||r.out||ob)return;r.brk.push({s:now})}else if(t==='be'){if(!ob)return;l.e=now}
+ await db.collection('att').doc(k).set(r)}
 function rep(){const l=Object.values(att).filter(a=>(!filt.d||a.date===filt.d)&&(!filt.u||a.u===filt.u)).sort((a,b)=>b.date.localeCompare(a.date)||a.name.localeCompare(b.name));
  return`<div class="card"><h2>تقرير الحضور</h2><div class="row"><div><span class="mut">التاريخ</span><input type="date" value="${filt.d}" onchange="filt.d=this.value;render()"></div><div><span class="mut">الموظف</span><select onchange="filt.u=this.value;render()"><option value="">الكل</option>${Object.entries(users).map(([i,u])=>`<option value="${i}" ${filt.u===i?'selected':''}>${esc(u.name)}</option>`).join('')}</select></div></div>
 <div class="sc"><table><tr><th>الموظف</th><th>التاريخ</th><th>حضور</th><th>انصراف</th><th>الساعات</th><th>ملاحظات</th></tr>${l.map(a=>`<tr><td>${esc(a.name)}</td><td>${a.date}</td><td>${tm(a.in)}</td><td>${tm(a.out)}</td><td>${hrs(a)}</td><td>${nt(a)}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">لا يوجد بيانات</td></tr>'}</table></div></div>`}
