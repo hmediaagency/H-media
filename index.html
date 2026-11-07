@@ -33,13 +33,15 @@ window.addEventListener('unhandledrejection',function(e){var d=document.getEleme
 // ===== الصقي هنا إعدادات Firebase بتاعتك =====
 const FB={apiKey:"AIzaSyChSAylzDENjN5DCBevcizISonI6ng-NhA",authDomain:"hmedia-attendance.firebaseapp.com",projectId:"hmedia-attendance",storageBucket:"hmedia-attendance.firebasestorage.app",messagingSenderId:"656001139972",appId:"1:656001139972:web:543c24f6fa06de8b267c51"};
 // ==============================================
-let db=null,me=null,users={},att={},isOwner=false,tab='today',msg='',editing=null,filt={d:'',u:''},rcShow=null,forgot=false;
+let db=null,me=null,users={},att={},isOwner=false,tab='today',msg='',editing=null,filt={d:'',u:''},rcShow=null,forgot=false,ev={},evInit=false,tload=Date.now();
 const $=s=>document.querySelector(s),app=$('#app');
 const PERMS={users:'إدارة الموظفين',reports:'عرض تقارير الجميع',admins:'إضافة أدمن وتعديل الصلاحيات'};
 const pad=n=>String(n).padStart(2,'0');
 const WS=9*60,WE=17*60,mn=t=>{const d=new Date(t);return d.getHours()*60+d.getMinutes()};
 const fm=m=>m>=60?Math.floor(m/60)+'س '+(m%60)+'د':m+'د';
-const hrs=a=>a.in&&a.out?fm(Math.max(0,Math.round((a.out-a.in-bm(a))/60000))):'—';
+const hrs=a=>tot(a)?fm(Math.max(0,Math.round((tot(a)-bm(a))/60000))):'—';
+const ssOf=a=>a.ss||(a.in?[a.out?{i:a.in,o:a.out}:{i:a.in}]:[]);
+const tot=a=>ssOf(a).reduce((t,x)=>t+(x.o?x.o-x.i:0),0);
 const bm=a=>(a.brk||[]).reduce((t,b)=>t+((b.e||Date.now())-b.s),0);
 const nt=a=>{let n=[];if(a.in&&mn(a.in)>WS)n.push('<span style="color:var(--rd)">تأخير '+fm(mn(a.in)-WS)+'</span>');if(a.out&&mn(a.out)<WE)n.push('<span style="color:var(--rd)">انصراف مبكر '+fm(WE-mn(a.out))+'</span>');if(a.in&&a.out&&!n.length)n.push('<span class="ok">التزام كامل</span>');let b=bm(a)?'استراحة '+fm(Math.round(bm(a)/60000)):'';return n.concat(b?[b]:[]).join(' · ')||'—'};
 const dk=(d=new Date())=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
@@ -56,6 +58,7 @@ async function init(){
  isOwner=true;
  let t=setTimeout(()=>{if(!ready)render()},10000),ready=false;
  db.collection('users').onSnapshot(s=>{users={};s.docs.forEach(d=>users[d.id]=d.data());ready=true;clearTimeout(t);me=sess();if(me&&!users[me]||me&&users[me].active===false){sess(null);me=null}render()},()=>{app.innerHTML=hdr()+'<div class="card err">تعذّر الاتصال بقاعدة البيانات. راجعي إعدادات Firebase وقواعد Firestore.</div>'});
+ db.collection('ev').onSnapshot(s=>{const n=[];s.docs.forEach(d=>{if(!ev[d.id]){ev[d.id]=d.data();if(evInit&&ev[d.id].ts>tload-2000)n.push(ev[d.id])}});evInit=true;n.forEach(alertEv);if(tab==='act')render()},()=>{});
  db.collection('att').onSnapshot(s=>{att={};s.docs.forEach(d=>att[d.id]=d.data());render()},()=>{});
  setInterval(()=>{const c=$('#clk');if(c)c.textContent=new Date().toLocaleTimeString('ar-EG')},1000);
 }
@@ -67,11 +70,11 @@ function render0(){
  if(!me){app.innerHTML=hdr()+loginV();return}
  if(rcShow){app.innerHTML=hdr()+rcCard();return}
  let h=hdr(),tabs=[['today','حضوري']];
- if(can('reports'))tabs.push(['rep','التقارير']);
+ if(can('reports'))tabs.push(['rep','التقارير'],['act','🔔 النشاط']);
  if(can('users')||can('admins'))tabs.push(['usr','الموظفين']);
  h+=`<div class="tabs">${tabs.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="tab='${t[0]}';msg='';render()">${t[1]}</button>`).join('')}</div>`;
  if(!tabs.find(t=>t[0]===tab))tab='today';
- h+=tab==='today'?today():tab==='rep'?rep():usr();
+ h+=tab==='today'?today():tab==='rep'?rep():tab==='act'?act():usr();
  const keep=[...app.querySelectorAll('input,select')].map(e=>e.value);
  app.innerHTML=h;
 }
@@ -82,6 +85,11 @@ async function doSetup(){const n=$('#n').value.trim(),u=$('#u').value.trim().toL
  if(!n||!/^[a-z0-9_.]+$/.test(u)||p.length<6){msg='املئي البيانات (اسم مستخدم بحروف إنجليزية، وكلمة مرور 6+)';render();return}
  const s=salt();const hh=await hash(p,s),rc=[...crypto.getRandomValues(new Uint8Array(12))].map(x=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[x%32]).join(''),rs=salt(),rh=await hash(rc,rs);
  rcShow=rc.match(/.{4}/g).join('-');sess(u);me=u;tab='today';msg='';await db.collection('users').doc(u).set({name:n,salt:s,hash:hh,rsalt:rs,rhash:rh,role:'admin',root:true,active:true,perms:{users:true,reports:true,admins:true}})}
+function toast(t){const d=document.createElement('div');d.className='toast';d.textContent=t;d.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:12px;right:12px;z-index:99;background:#111;color:#a4cc3c;border:1px solid #a4cc3c;padding:12px;border-radius:12px;text-align:center;font-weight:700';document.body.appendChild(d);setTimeout(()=>d.remove(),7000)}
+function alertEv(e){if(!me||!can('reports')||e.u===me)return;const t=e.name+(e.t==='in'?' فتح الحضور':' قفل الحضور')+' الساعة '+tm(e.ts);toast('🔔 '+t);try{if('Notification' in window&&Notification.permission==='granted')new Notification('H Media',{body:t})}catch(x){}}
+async function askN(){try{await Notification.requestPermission()}catch(x){}render()}
+function act(){const l=Object.values(ev).sort((a,b)=>b.ts-a.ts).slice(0,40),sup='Notification' in window;
+return`<div class="card"><h2>الإشعارات</h2><p class="mut">لما موظف يسجّل حضور أو انصراف يظهر لك تنبيه (والصفحة مفتوحة عندك).</p>${sup?`<button onclick="askN()">${Notification.permission==='granted'?'إشعارات المتصفح مفعّلة ✓':'تفعيل إشعارات المتصفح'}</button>`:'<p class="mut">المتصفح ده مش بيدعم إشعارات المتصفح، والتنبيه هيظهر داخل الصفحة بس.</p>'}</div><div class="card"><h2>آخر النشاط</h2>${l.map(e=>`<div class="u"><div>${esc(e.name)} — ${e.t==='in'?'<span class="ok">فتح الحضور</span>':'<span style="color:var(--rd)">قفل الحضور</span>'}</div><div class="mut">${new Date(e.ts).toLocaleDateString('ar-EG',{day:'numeric',month:'short'})} ${tm(e.ts)}</div></div>`).join('')||'<p class="mut">لا يوجد نشاط بعد</p>'}</div>`}
 function pw(c){$('#p').type=c.checked?'text':'password'}
 function rcCard(){return`<div class="card"><h2>كود استرجاع كلمة المرور</h2><p>احتفظي بالكود ده في مكان آمن (صوّريه أو اكتبيه). هتحتاجيه لو نسيتي كلمة مرور الأدمن، ومش هيظهر تاني.</p><div id="rc" style="direction:ltr;font:700 22px monospace;text-align:center;padding:14px;background:var(--bg);border-radius:10px;user-select:all">${rcShow}</div><button style="width:100%;margin-top:12px" onclick="rcShow=null;render()">حفظت الكود، متابعة</button></div>`}
 function forgotV(){return`<div class="card"><h2>نسيت كلمة المرور</h2><p class="mut">للأدمن الرئيسي: اكتبي اسم المستخدم وكود الاسترجاع وكلمة مرور جديدة. الموظف يطلب من الأدمن يغيّر له كلمة المرور من تبويب الموظفين.</p><input id="u" placeholder="اسم المستخدم" autocapitalize="off"><input id="c" placeholder="كود الاسترجاع" autocapitalize="characters" style="direction:ltr"><input id="p" type="password" placeholder="كلمة المرور الجديدة (6+)"><label class="c"><input type="checkbox" onchange="pw(this)"> إظهار كلمة المرور</label><div class="err">${msg}</div><div class="row"><button onclick="doForgot()">تغيير كلمة المرور</button><button class="s" onclick="forgot=false;msg='';render()">رجوع</button></div></div>`}
@@ -93,17 +101,19 @@ async function login(){const u=$('#u').value.trim().toLowerCase(),p=$('#p').valu
  if(!x||x.active===false||await hash(p,x.salt)!==x.hash){msg='اسم المستخدم أو كلمة المرور غلط';render();return}
  msg='';sess(u);me=u;tab='today';render()}
 function logout(){sess(null);me=null;render()}
-function today(){const k=me+'_'+dk(),r=att[k]||{},br=r.brk||[],onB=br.length&&!br[br.length-1].e;
+function today(){const k=me+'_'+dk(),r=att[k]||{},br=r.brk||[],onB=br.length&&!br[br.length-1].e,ss=ssOf(r),open=ss.length&&!ss[ss.length-1].o;
  const mine=Object.values(att).filter(a=>a.u===me).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,14);
  return`<div class="card"><div class="mut" style="text-align:center">${new Date().toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'})}</div><div class="clock" id="clk">${new Date().toLocaleTimeString('ar-EG')}</div>
-<div class="row"><button onclick="punch('in')" ${r.in?'disabled':''}>تسجيل حضور</button><button class="d" onclick="punch('out')" ${!r.in||r.out?'disabled':''}>تسجيل انصراف</button></div>
-<div class="row" style="margin-top:8px"><button class="s" onclick="punch('bs')" ${!r.in||r.out||onB?'disabled':''}>بدء استراحة</button><button class="s" onclick="punch('be')" ${onB?'':'disabled'}>إنهاء الاستراحة</button></div>
-<p class="mut" style="text-align:center">حضور: ${tm(r.in)} — انصراف: ${tm(r.out)}<br>مواعيد العمل: 9:00 ص – 5:00 م${r.in?'<br>'+nt(r):''}${onB?'<br><b>⏸ في استراحة</b>':''}</p></div>
+<div class="row"><button onclick="punch('in')" ${open?'disabled':''}>تسجيل حضور</button><button class="d" onclick="punch('out')" ${!open?'disabled':''}>تسجيل انصراف</button></div>
+<div class="row" style="margin-top:8px"><button class="s" onclick="punch('bs')" ${!open||onB?'disabled':''}>بدء استراحة</button><button class="s" onclick="punch('be')" ${onB?'':'disabled'}>إنهاء الاستراحة</button></div>
+<p class="mut" style="text-align:center">${ss.map(x=>tm(x.i)+' ← '+(x.o?tm(x.o):'مفتوح')).join(' | ')||'لم يُسجَّل حضور بعد'}<br>مواعيد العمل: 9:00 ص – 5:00 م${r.in?'<br>'+nt(r):''}${onB?'<br><b>⏸ في استراحة</b>':''}</p></div>
 <div class="card"><h2>آخر أيامي</h2><div class="sc"><table><tr><th>التاريخ</th><th>حضور</th><th>انصراف</th><th>الساعات</th><th>ملاحظات</th></tr>${mine.map(a=>`<tr><td>${a.date}</td><td>${tm(a.in)}</td><td>${tm(a.out)}</td><td>${hrs(a)}</td><td>${nt(a)}</td></tr>`).join('')||'<tr><td colspan=5 class="mut">لا يوجد</td></tr>'}</table></div></div>`}
-async function punch(t){const d=dk(),k=me+'_'+d,r=att[k]||{u:me,name:users[me].name,date:d},now=Date.now();r.brk=r.brk||[];const l=r.brk[r.brk.length-1],ob=l&&!l.e;
- if(t==='in'){if(r.in)return;r.in=now}else if(t==='out'){if(!r.in||r.out)return;if(ob)l.e=now;r.out=now}
- else if(t==='bs'){if(!r.in||r.out||ob)return;r.brk.push({s:now})}else if(t==='be'){if(!ob)return;l.e=now}
- await db.collection('att').doc(k).set(r)}
+async function punch(t){const d=dk(),k=me+'_'+d,r=att[k]||{u:me,name:users[me].name,date:d},now=Date.now();r.ss=ssOf(r).map(x=>({...x}));r.brk=r.brk||[];const ls=r.ss[r.ss.length-1],op=ls&&!ls.o,l=r.brk[r.brk.length-1],ob=l&&!l.e;
+ if(t==='in'){if(op)return;r.ss.push({i:now});r.in=r.in||now;r.out=null}
+ else if(t==='out'){if(!op)return;if(ob)l.e=now;ls.o=now;r.out=now}
+ else if(t==='bs'){if(!op||ob)return;r.brk.push({s:now})}else if(t==='be'){if(!ob)return;l.e=now}
+ await db.collection('att').doc(k).set(r);
+ if(t==='in'||t==='out')await db.collection('ev').doc(now+'_'+me).set({u:me,name:users[me].name,t,ts:now})}
 function rep(){const l=Object.values(att).filter(a=>(!filt.d||a.date===filt.d)&&(!filt.u||a.u===filt.u)).sort((a,b)=>b.date.localeCompare(a.date)||a.name.localeCompare(b.name));
  return`<div class="card"><h2>تقرير الحضور</h2><div class="row"><div><span class="mut">التاريخ</span><input type="date" value="${filt.d}" onchange="filt.d=this.value;render()"></div><div><span class="mut">الموظف</span><select onchange="filt.u=this.value;render()"><option value="">الكل</option>${Object.entries(users).map(([i,u])=>`<option value="${i}" ${filt.u===i?'selected':''}>${esc(u.name)}</option>`).join('')}</select></div></div>
 <div class="sc"><table><tr><th>الموظف</th><th>التاريخ</th><th>حضور</th><th>انصراف</th><th>الساعات</th><th>ملاحظات</th></tr>${l.map(a=>`<tr><td>${esc(a.name)}</td><td>${a.date}</td><td>${tm(a.in)}</td><td>${tm(a.out)}</td><td>${hrs(a)}</td><td>${nt(a)}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">لا يوجد بيانات</td></tr>'}</table></div></div>`}
