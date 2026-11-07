@@ -23,6 +23,10 @@ button.s{background:var(--bd);color:var(--tx)}button.d{background:var(--rd);colo
 .u{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--bd)}
 .tag{font-size:12px;background:var(--g);color:#111;border-radius:6px;padding:1px 7px;margin-inline-start:6px}
 </style></head><body><div class="w" id="app"><div class="card mut">جاري التحميل…</div></div>
+<script>
+window.addEventListener('error',function(e){var d=document.getElementById('app')||document.body;d.innerHTML+='<div style="padding:12px;margin:12px;border:2px solid #c0392b;border-radius:10px;font:14px monospace;direction:ltr;word-break:break-all">ERROR: '+(e.message||'')+' | '+(e.filename||'')+':'+(e.lineno||'')+'</div>'});
+window.addEventListener('unhandledrejection',function(e){var d=document.getElementById('app')||document.body;d.innerHTML+='<div style="padding:12px;margin:12px;border:2px solid #c0392b;border-radius:10px;font:14px monospace;direction:ltr;word-break:break-all">PROMISE ERROR: '+(e.reason&&e.reason.message||e.reason)+'</div>'});
+</script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
@@ -47,19 +51,19 @@ const isAdm=()=>me&&(users[me]?.root||users[me]?.role==='admin');
 function sess(v){try{v===undefined?0:(v?sessionStorage.setItem('hm',v):sessionStorage.removeItem('hm'));return sessionStorage.getItem('hm')}catch(e){return null}}
 async function init(){
  if(!FB.apiKey){app.innerHTML='<div class="card"><h2>الإعدادات ناقصة</h2><p class="mut">افتحي الملف وحطي بيانات Firebase مكان FB في أول السكربت.</p></div>';return}
- try{firebase.initializeApp(FB);db=firebase.firestore()}catch(e){app.innerHTML='<div class="card">خطأ في إعدادات Firebase</div>';return}
+ try{firebase.initializeApp(FB);db=firebase.firestore()}catch(e){app.innerHTML='<div class="card"><h2>تعذّر تشغيل Firebase</h2><p class="mut">افتحي الصفحة من رابط GitHub في Chrome (مش من داخل Claude ولا من واتساب)، وتأكدي من الإنترنت وإن مفيش إضافة بتحجب المواقع.</p><p style="direction:ltr;font:13px monospace;word-break:break-all">'+(e&&e.message||e)+'</p></div>';return}
  isOwner=true;
  let t=setTimeout(()=>{if(!ready)render()},10000),ready=false;
- db.collection('users').onSnapshot(s=>{users={};s.docs.forEach(d=>users[d.id]=d.data());ready=true;clearTimeout(t);me=sess();if(me&&!users[me]||me&&users[me].active===false){sess(null);me=null}render()},()=>{app.innerHTML=top()+'<div class="card err">تعذّر الاتصال بقاعدة البيانات. راجعي إعدادات Firebase وقواعد Firestore.</div>'});
+ db.collection('users').onSnapshot(s=>{users={};s.docs.forEach(d=>users[d.id]=d.data());ready=true;clearTimeout(t);me=sess();if(me&&!users[me]||me&&users[me].active===false){sess(null);me=null}render()},()=>{app.innerHTML=hdr()+'<div class="card err">تعذّر الاتصال بقاعدة البيانات. راجعي إعدادات Firebase وقواعد Firestore.</div>'});
  db.collection('att').onSnapshot(s=>{att={};s.docs.forEach(d=>att[d.id]=d.data());render()},()=>{});
  setInterval(()=>{const c=$('#clk');if(c)c.textContent=new Date().toLocaleTimeString('ar-EG')},1000);
 }
-function top(){return`<div class="top"><div class="brand"><div class="logo">H</div>H Media</div><div>${me?`<span class="mut">${esc(users[me].name)}</span> <button class="s sm" onclick="logout()">خروج</button>`:''}</div></div>`}
+function hdr(){return`<div class="top"><div class="brand"><div class="logo">H</div>H Media</div><div>${me?`<span class="mut">${esc(users[me].name)}</span> <button class="s sm" onclick="logout()">خروج</button>`:''}</div></div>`}
 function render(){
  if(editing&&document.activeElement&&['INPUT','SELECT'].includes(document.activeElement.tagName)&&0)return;
- if(!Object.keys(users).length){app.innerHTML=top()+setup();return}
- if(!me){app.innerHTML=top()+loginV();return}
- let h=top(),tabs=[['today','حضوري']];
+ if(!Object.keys(users).length){app.innerHTML=hdr()+setup();return}
+ if(!me){app.innerHTML=hdr()+loginV();return}
+ let h=hdr(),tabs=[['today','حضوري']];
  if(can('reports'))tabs.push(['rep','التقارير']);
  if(can('users')||can('admins'))tabs.push(['usr','الموظفين']);
  h+=`<div class="tabs">${tabs.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="tab='${t[0]}';msg='';render()">${t[1]}</button>`).join('')}</div>`;
@@ -73,7 +77,7 @@ function setup(){return isOwner?`<div class="card"><h2>إعداد النظام (
 <div class="err">${msg}</div><button onclick="doSetup()">إنشاء الأدمن</button></div>`:`<div class="card">النظام لسه مش متجهز. صاحب الصفحة لازم يفتحها أول مرة ويعمل حساب الأدمن.</div>`}
 async function doSetup(){const n=$('#n').value.trim(),u=$('#u').value.trim().toLowerCase(),p=$('#p').value;
  if(!n||!/^[a-z0-9_.]+$/.test(u)||p.length<6){msg='املئي البيانات (اسم مستخدم بحروف إنجليزية، وكلمة مرور 6+)';render();return}
- const s=salt();await db.collection('users').doc(u).set({name:n,salt:s,hash:await hash(p,s),role:'admin',root:true,active:true,perms:{users:true,reports:true,admins:true}});sess(u);msg=''}
+ const s=salt();const hh=await hash(p,s);sess(u);me=u;tab='today';msg='';await db.collection('users').doc(u).set({name:n,salt:s,hash:hh,role:'admin',root:true,active:true,perms:{users:true,reports:true,admins:true}})}
 function loginV(){return`<div class="card"><h2>تسجيل الدخول</h2><input id="u" placeholder="اسم المستخدم" autocapitalize="off"><input id="p" type="password" placeholder="كلمة المرور" onkeydown="if(event.key==='Enter')login()"><div class="err">${msg}</div><button onclick="login()" style="width:100%">دخول</button></div>`}
 async function login(){const u=$('#u').value.trim().toLowerCase(),p=$('#p').value,x=users[u];
  if(!x||x.active===false||await hash(p,x.salt)!==x.hash){msg='اسم المستخدم أو كلمة المرور غلط';render();return}
